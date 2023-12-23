@@ -50,6 +50,8 @@ const account2 = {
 };
 
 const accounts = [account1, account2];
+let currentUser = {};
+let timer;
 
 /////////////////////////////////////////////////
 // Elements
@@ -81,173 +83,355 @@ const inputClosePin = document.querySelector('.form__input--pin');
 /////////////////////////////////////////////////
 // Functions
 
-const displayMovements = function (movements, sort = false) {
-  containerMovements.innerHTML = '';
+const GetCurrentDate = function(isHourIncluded = false)
+{
+    const nowDate = new Date();
+    const dateObject = {
+      year: nowDate.getFullYear(),
+      month: nowDate.getMonth() + 1,
+      day: nowDate.getDate(),
+    };
+    if(isHourIncluded)
+    {
+      dateObject.Hour = nowDate.getHours(),
+      dateObject.min = nowDate.getMinutes(),
+      dateObject.second = nowDate.getSeconds()
+    }
+    return  dateObject;
+}
 
-  const movs = sort ? movements.slice().sort((a, b) => a - b) : movements;
+const FormatDate = function(date)
+{
+  const option = {
+    day:"2-digit",
+    month:"2-digit", 
+    year:"numeric",
+    hour:"2-digit",
+    minute:"2-digit"
+  }
+  return new Intl.DateTimeFormat(currentUser.locale,option).format(date);
+}
 
-  movs.forEach(function (mov, i) {
-    const type = mov > 0 ? 'deposit' : 'withdrawal';
+//countDown 
 
-    const html = `
-      <div class="movements__row">
-        <div class="movements__type movements__type--${type}">${
-      i + 1
-    } ${type}</div>
-        <div class="movements__value">${mov}€</div>
-      </div>
-    `;
 
-    containerMovements.insertAdjacentHTML('afterbegin', html);
+
+const StartCountDown = function()
+{
+  let countdown = 120;
+  function timer()
+  {
+    let min = Math.trunc(countdown / 60);
+    let second = countdown % 60;
+    labelTimer.textContent = `${min}`.padStart(2,"0")+":"+`${second}`.padStart(2,"0");
+    countdown--;
+
+    if(countdown === 0)
+    {
+      clearInterval(tick);
+      containerApp.style.opacity = 0;
+      labelWelcome.textContent = "Log in to get started";
+    }
+  };
+
+
+  timer();
+  const tick = setInterval(timer,1000);
+  //to stop from outside
+  return tick;
+  
+}
+
+
+const FormatCurrency = function(money)
+{
+  const option = {
+    style:"currency",
+    currency:currentUser.currency, 
+  }
+  return new Intl.NumberFormat(currentUser.locale,option).format(money);
+}
+
+const DisplayMovements = function(movements)
+{
+  //empty the container text
+  containerMovements.innerHTML = "";
+ 
+  movements.forEach((movement, index )=> {
+    const transactionType = movement >= 0  ? "deposit" : "withdrawal";
+    const HTML = `
+    <div class="movements__row">
+          <div class="movements__type movements__type--${transactionType}">${index + 1} ${transactionType}</div>
+            <div class="movements__date">${FormatDate(new Date(currentUser.movementsDates[index]))}</div> 
+          <div class="movements__value">${FormatCurrency(movement)}</div>
+        </div>
+    `
+    /*beforebegin : before the element
+      afterbegin : after the element but in the begining
+      beforeEnd : after the element but before the end
+      afterend : after the element 
+    */
+    containerMovements.insertAdjacentHTML("afterbegin", HTML);
   });
-};
 
-const calcDisplayBalance = function (acc) {
-  acc.balance = acc.movements.reduce((acc, mov) => acc + mov, 0);
-  labelBalance.textContent = `${acc.balance}€`;
-};
+}
 
-const calcDisplaySummary = function (acc) {
-  const incomes = acc.movements
-    .filter(mov => mov > 0)
-    .reduce((acc, mov) => acc + mov, 0);
-  labelSumIn.textContent = `${incomes}€`;
 
-  const out = acc.movements
-    .filter(mov => mov < 0)
-    .reduce((acc, mov) => acc + mov, 0);
-  labelSumOut.textContent = `${Math.abs(out)}€`;
+/*Reduce method makes an array into a variable. Can be used to find max, min, total, etc. 
+Parameters are : call back function and accumulator default value
+Callback function params : acamulator, current, index, array.
+*/
+// function to show current balance  on the account
 
-  const interest = acc.movements
-    .filter(mov => mov > 0)
-    .map(deposit => (deposit * acc.interestRate) / 100)
-    .filter((int, i, arr) => {
-      // console.log(arr);
-      return int >= 1;
-    })
-    .reduce((acc, int) => acc + int, 0);
-  labelSumInterest.textContent = `${interest}€`;
-};
+const CalculateBankBalance = function(currentAcc)
+{
+  currentAcc.totalBalance = currentAcc.movements.reduce((acum, movement) => {
+    return acum + movement;
+  }, 0);
 
-const createUsernames = function (accs) {
-  accs.forEach(function (acc) {
-    acc.username = acc.owner
-      .toLowerCase()
-      .split(' ')
-      .map(name => name[0])
-      .join('');
-  });
-};
-createUsernames(accounts);
+  labelBalance.textContent = `${FormatCurrency(currentAcc.totalBalance)}`;
+}
 
-const updateUI = function (acc) {
-  // Display movements
-  displayMovements(acc.movements);
 
-  // Display balance
-  calcDisplayBalance(acc);
+//function to display in, out and interest
+const DisplaySummary = function (currentAcc)
+{
+  // display income
+  const income = currentAcc.movements.filter((movement)=> movement > 0).
+  reduce((accum,movement) => accum + movement,0);
+  labelSumIn.textContent = `${FormatCurrency(income)}`;
+  //display outgoing
+  const outgoing = currentAcc.movements.filter((movement)=> movement < 0).
+  reduce((accum,movement) => accum + movement,0);
+  labelSumOut.textContent = `${FormatCurrency(Math.abs(outgoing))}`;
+  //take interest rate as 1.2
+  const interest = currentAcc.totalBalance * currentAcc.interestRate / 100;
+  labelSumInterest.textContent = `${FormatCurrency(interest)}`;
+}
 
-  // Display summary
-  calcDisplaySummary(acc);
-};
 
-///////////////////////////////////////
-// Event handlers
-let currentAccount;
+function LoadAccount(account)
+{
 
-btnLogin.addEventListener('click', function (e) {
-  // Prevent form from submitting
-  e.preventDefault();
+  DisplayMovements(account.movements);
+  CalculateBankBalance(account);
+  DisplaySummary(account);
+}
 
-  currentAccount = accounts.find(
-    acc => acc.username === inputLoginUsername.value
-  );
-  console.log(currentAccount);
 
-  if (currentAccount?.pin === Number(inputLoginPin.value)) {
-    // Display UI and message
-    labelWelcome.textContent = `Welcome back, ${
-      currentAccount.owner.split(' ')[0]
-    }`;
-    containerApp.style.opacity = 100;
 
-    // Clear input fields
-    inputLoginUsername.value = inputLoginPin.value = '';
-    inputLoginPin.blur();
-
-    // Update UI
-    updateUI(currentAccount);
+btnLogin.addEventListener("click", function(e) {
+  e.preventDefault();//buttons that are created under forms, default behaviour is refresh pages
+  currentUser = accounts.find((acc) => inputLoginUsername.value === acc.username);
+  inputLoginUsername.value = inputLoginPin.value ="";
+  inputLoginUsername.blur();
+  inputLoginPin.blur();
+  if(currentUser && currentUser.pin === currentUser.pin)
+  {
+    labelWelcome.textContent = `${currentUser.owner.split(" ")[0]} Welcome, Have a Nice Day!`
+    LoadAccount(currentUser);
+    containerApp.style.opacity = 1;
+    labelDate.textContent = FormatDate(new Date());
+    if(timer) clearInterval(timer); 
+   timer = StartCountDown();
+  }
+  else
+  {
+    alert("PIN or Username is wrong!");
   }
 });
 
-btnTransfer.addEventListener('click', function (e) {
+btnTransfer.addEventListener("click", function(e)
+{
   e.preventDefault();
   const amount = Number(inputTransferAmount.value);
-  const receiverAcc = accounts.find(
-    acc => acc.username === inputTransferTo.value
-  );
-  inputTransferAmount.value = inputTransferTo.value = '';
+  const transferAccount = accounts.find((acc) => acc.username === inputTransferTo.value);
 
-  if (
-    amount > 0 &&
-    receiverAcc &&
-    currentAccount.balance >= amount &&
-    receiverAcc?.username !== currentAccount.username
-  ) {
-    // Doing the transfer
-    currentAccount.movements.push(-amount);
-    receiverAcc.movements.push(amount);
-
-    // Update UI
-    updateUI(currentAccount);
+  if(transferAccount && amount <= currentUser.totalBalance && !isNaN(amount))
+  {
+    inputTransferAmount.value = inputTransferTo.value = "";
+    inputTransferAmount.blur();
+    inputTransferTo.blur();
+    currentUser.movements.push(-amount);
+    transferAccount.movements.push(amount);
+    currentUser.movementsDates.push((new Date()).toISOString());
+    LoadAccount(currentUser);
+    console.log("money sent");
   }
+  else
+  {
+    console.log("Money cant send");
+  }
+
+
+
 });
 
-btnLoan.addEventListener('click', function (e) {
+
+btnClose.addEventListener("click", function(e)
+{
   e.preventDefault();
-
-  const amount = Number(inputLoanAmount.value);
-
-  if (amount > 0 && currentAccount.movements.some(mov => mov >= amount * 0.1)) {
-    // Add movement
-    currentAccount.movements.push(amount);
-
-    // Update UI
-    updateUI(currentAccount);
-  }
-  inputLoanAmount.value = '';
-});
-
-btnClose.addEventListener('click', function (e) {
-  e.preventDefault();
-
-  if (
-    inputCloseUsername.value === currentAccount.username &&
-    Number(inputClosePin.value) === currentAccount.pin
-  ) {
-    const index = accounts.findIndex(
-      acc => acc.username === currentAccount.username
-    );
-    console.log(index);
-    // .indexOf(23)
-
-    // Delete account
-    accounts.splice(index, 1);
-
-    // Hide UI
+  if(inputCloseUsername.value === currentUser.username && Number(inputClosePin.value) === currentUser.pin)
+  {
+    
+    inputClosePin.value = inputCloseUsername.value = "";
+    inputClosePin.blur();
+    inputCloseUsername.blur();
     containerApp.style.opacity = 0;
+    //now delete account
+    console.log(accounts.findIndex((acc)=> acc.username === currentUser.username));
+    accounts.splice(accounts.findIndex((acc)=> acc.username === currentUser.username),1);
+  }
+  else
+  {
+    console.log(inputCloseUsername.value, currentUser.username, inputClosePin,currentUser.pin );
   }
 
-  inputCloseUsername.value = inputClosePin.value = '';
+}
+);
+
+//taking loan. If any one of the movement is bigger than  10% of the loan amount you can take a loan
+
+btnLoan.addEventListener("click", function(e)
+{
+  e.preventDefault();
+  const amount = Number(inputLoanAmount.value);
+  inputLoanAmount.value = "";
+  inputLoanAmount.blur();
+  if(currentUser.movements.some((mov) => mov > amount * 0.1) && amount > 0)
+  {
+    currentUser.movements.push(amount);
+    LoadAccount(currentUser);
+  }
+
+
 });
 
+//sorting the list. One click sorts from bigger to low. One more click reverse back.
 let sorted = false;
-btnSort.addEventListener('click', function (e) {
+btnSort.addEventListener("click", function(e)
+{
+  console.log(currentUser.movements);
   e.preventDefault();
-  displayMovements(currentAccount.movements, !sorted);
+  const sortedMovements = [...currentUser.movements];
+  sortedMovements.sort((a,b) => b-a);
+  sorted ?  DisplayMovements(currentUser.movements): DisplayMovements(sortedMovements);
   sorted = !sorted;
+  console.log("sorted is ",sorted);
+  console.log(currentUser.movements);
 });
+
+
+//Usernames needed to be created out of initals of first and last name
+
+const CreateUsernames = function(accounts)
+{
+  accounts.forEach(account => {
+      account.username = account.owner.split(" ").map((word)=>word[0]).join("").toLowerCase();
+      let name = "cevher";
+    });
+}
+CreateUsernames(accounts); 
+
 
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
 // LECTURES
+
+/*
+In javascript all numbers presented as floating point numbers.
+
+*/
+
+//numeric sperators
+
+//hard to read number
+const diemeter = 287460000000; 
+//we can write it like this. JS engine will ignore underscore
+const diemeter2 = 287_460_000_000;
+const priceCents = 354_99;
+
+//bigInt, is a big number data,
+//max value in js is 
+console.log(2 ** 53 - 1);
+//or
+console.log(Number.MAX_SAFE_INTEGER);
+
+//we can write bigger numbers as like this
+const bigNum = 2483259193249134929149129313n;
+console.log(bigNum);
+//or
+console.log(BigInt(48384302));
+//you cant make bigint and normal int operations but can use compare operators
+
+/*
+
+// Create a date
+
+const now = new Date();
+console.log(now);
+
+console.log(new Date('Aug 02 2020 18:05:41'));
+console.log(new Date('December 24, 2015'));
+console.log(new Date(account1.movementsDates[0]));
+
+console.log(new Date(2037, 10, 19, 15, 23, 5));
+console.log(new Date(2037, 10, 31));
+
+console.log(new Date(0)); // gives 1970
+console.log(new Date(3 * 24 * 60 * 60 * 1000)); // 1970 + 3 days
+
+
+// Working with dates
+//starts with year, month day hour min secs
+const future = new Date(2037, 10, 19, 15, 23);
+console.log(future);
+console.log(future.getFullYear());
+console.log(future.getMonth());
+console.log(future.getDate()); //gets the day
+console.log(future.getDay()); // gets the day in a week, sunday start with index of 0
+console.log(future.getHours());
+console.log(future.getMinutes());
+console.log(future.getSeconds());
+console.log(future.toISOString()); // makes date in a packed version
+// gets the time passed since 1970 in miliseconds
+console.log(future.getTime());
+//gets miliseconds since 1970
+console.log(Date.now());
+
+*/
+
+console.log(new Date("2020-07-26T12:01:20.894Z"));
+
+//console.log(+new Date()) nad console.log(new Date()) one gives miliseconds one gives date.
+//operations between dates make in miliseconds. 
+console.log(new Date() - new Date("2020-07-26T12:01:20.894Z"));
+
+
+//SetTimeout and setInterval
+/*
+SetTimeOut works once , after given seconds. SetInterval works in intervals forever unless being stopped
+*/
+
+//After 5 seconds reveal baby gender, After miliseconds every parameter is also function parameter
+/*
+const revealGender = setTimeout((text) => { 
+  const gender = Math.trunc(Math.random() * 2) === 0 ? "boy! " : "girl! "; 
+  console.log(text+gender);
+  
+});
+
+//to run function over and over again we use set interval
+
+const clock = setInterval(() => {
+  const date = new Date();
+  const time  = `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`
+  console.log(time);
+}, 1000);
+
+//to stop we use clearInterval or to use settimeout clearTimeout
+setTimeout(() => {
+  clearInterval(clock);
+}, 5000);
+
+*/
